@@ -1,40 +1,44 @@
-# Boostly - Credit Recognition and Redemption Platform
+# Boostly - Credit Recognition & Redemption Platform
 
-A Flask-based application that enables college students to recognize their peers, allocate monthly credits, and redeem earned rewards.
+> A Flask-based application enabling college students to recognize their peers, allocate monthly credits, and redeem earned rewards.
 
-## Table of Contents
-- [Features](#features)
-- [Setup Instructions](#setup-instructions)
-- [Running the Application](#running-the-application)
-- [API Documentation](#api-documentation)
-- [Sample Requests and Responses](#sample-requests-and-responses)
-- [Business Rules](#business-rules)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.0.0-green)](https://flask.palletsprojects.com/)
 
-## Features
+---
 
-### Core Functionality
-1. **Recognition System**: Transfer credits between students with monthly limits
-2. **Endorsements**: Like/cheer recognition entries
-3. **Redemption**: Convert received credits to vouchers (₹5 per credit)
+## 🎯 Overview
 
-### Step-Up Challenges
-1. **Credit Reset**: Automatic monthly reset with carry-forward (up to 50 credits)
-2. **Leaderboard**: Top recipients by credits received with endorsement counts
+Boostly is a comprehensive peer recognition platform that enables students to:
+- **Recognize** peers by transferring credits
+- **Endorse** recognitions with likes/cheers
+- **Redeem** credits for vouchers (₹5 per credit)
+- View **leaderboards** of top recipients
+- Automatic **monthly credit reset** with carry-forward
 
-## Setup Instructions
+### Professional Features 🚀
+- **Pydantic Validation**: Type-safe request validation with detailed error messages
+- **Rate Limiting**: API abuse protection (customized per endpoint)
+- **Secure Error Handling**: No internal error leakage to users
+- **Comprehensive Logging**: For debugging and monitoring
+- **Automated Credit Reset**: Monthly reset with intelligent carry-forward logic
+
+---
+
+## 📦 Installation
 
 ### Prerequisites
 - Python 3.8 or higher
-- pip (Python package manager)
+- pip package manager
 
-### Installation Steps
+### Setup Steps
 
-1. **Navigate to the src directory**
+1. **Navigate to the src directory**:
 ```bash
 cd src
 ```
 
-2. **Create a virtual environment (recommended)**
+2. **Create a virtual environment** (recommended):
 ```bash
 # On Windows
 python -m venv venv
@@ -45,69 +49,85 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. **Install dependencies**
+3. **Install dependencies**:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Initialize the database**
-The database will be automatically created when you first run the application, or you can use the `/init-db` endpoint.
+### Dependencies
+```
+Flask==3.0.0              # Web framework
+Flask-SQLAlchemy==3.1.1   # ORM
+Flask-Limiter==3.5.0      # Rate limiting
+pydantic==2.10.5          # Validation
+email-validator==2.2.0    # Email validation
+python-dateutil==2.8.2    # Date utilities
+```
 
-## Running the Application
+---
 
-### Start the Flask server
+## 🚀 Running the Application
+
+### Start the server:
 ```bash
 python app.py
 ```
 
-The application will start on `http://localhost:5000`
+The API will be available at: `http://localhost:5000`
 
-### Initialize Database (First Time)
+### Initialize the database (first time):
 ```bash
 curl -X POST http://localhost:5000/init-db
 ```
 
-## API Documentation
+Or the database will be created automatically on first run.
+
+---
+
+## 📚 API Documentation
 
 ### Base URL
 ```
 http://localhost:5000
 ```
 
-### Endpoints Overview
+### Response Format
+All responses are in JSON format.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | API information and available endpoints |
-| POST | `/students` | Create a new student |
-| GET | `/students/<id>` | Get student details and stats |
-| POST | `/recognition` | Send recognition with credits |
-| GET | `/recognitions` | List all recognitions |
-| POST | `/endorsement` | Endorse a recognition |
-| POST | `/redemption` | Redeem credits for voucher |
-| GET | `/redemptions/<student_id>` | List student's redemptions |
-| GET | `/leaderboard` | Get top recipients leaderboard |
-| POST | `/reset-credits/<student_id>` | Manually trigger credit reset |
-| POST | `/init-db` | Initialize/reset database |
+### Status Codes
+| Code | Meaning | Description |
+|------|---------|-------------|
+| 200 | OK | Successful GET request |
+| 201 | Created | Resource successfully created |
+| 400 | Bad Request | Validation failed or invalid input |
+| 404 | Not Found | Resource doesn't exist |
+| 429 | Too Many Requests | Rate limit exceeded |
+| 500 | Internal Server Error | Server error occurred |
 
 ---
 
-## Sample Requests and Responses
+## 📡 Endpoints
 
 ### 1. Create Student
 
-**Request:**
-```bash
-curl -X POST http://localhost:5000/students \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "2022CS001",
-    "name": "Alice Johnson",
-    "email": "alice@university.edu"
-  }'
+**Endpoint**: `POST /students`  
+**Rate Limit**: 10 requests per minute  
+
+**Request Body**:
+```json
+{
+  "id": "2022CS001",
+  "name": "Alice Johnson",
+  "email": "alice@university.edu"
+}
 ```
 
-**Response:**
+**Validation Rules**:
+- `id`: Required, 1-50 characters, no whitespace only
+- `name`: Required, 1-100 characters, no whitespace only
+- `email`: Required, valid email format (validated by email-validator)
+
+**Success Response (201)**:
 ```json
 {
   "message": "Student created successfully",
@@ -124,16 +144,45 @@ curl -X POST http://localhost:5000/students \
 }
 ```
 
+**Error Responses**:
+```json
+// Validation Error (400)
+{
+  "error": "Validation failed",
+  "details": [
+    {
+      "loc": ["email"],
+      "msg": "value is not a valid email address",
+      "type": "value_error"
+    }
+  ]
+}
+
+// Duplicate Student (400)
+{
+  "error": "Student with this ID already exists"
+}
+```
+
+**cURL Example**:
+```bash
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "2022CS001",
+    "name": "Alice Johnson",
+    "email": "alice@university.edu"
+  }'
+```
+
 ---
 
 ### 2. Get Student Details
 
-**Request:**
-```bash
-curl -X GET http://localhost:5000/students/2022CS001
-```
+**Endpoint**: `GET /students/<student_id>`  
+**Rate Limit**: 30 requests per minute  
 
-**Response:**
+**Success Response (200)**:
 ```json
 {
   "id": "2022CS001",
@@ -145,30 +194,49 @@ curl -X GET http://localhost:5000/students/2022CS001
   "last_reset_month": "2025-11",
   "created_at": "2025-11-13T08:05:30.123456",
   "stats": {
-    "recognitions_sent": 0,
-    "recognitions_received": 0,
-    "total_endorsements_received": 0
+    "recognitions_sent": 5,
+    "recognitions_received": 3,
+    "total_endorsements_received": 8
   }
 }
+```
+
+**cURL Example**:
+```bash
+curl -X GET http://localhost:5000/students/2022CS001
 ```
 
 ---
 
 ### 3. Create Recognition (Transfer Credits)
 
-**Request:**
-```bash
-curl -X POST http://localhost:5000/recognition \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sender_id": "2022CS001",
-    "recipient_id": "2022CS002",
-    "credits": 15,
-    "message": "Great job on the project presentation!"
-  }'
+**Endpoint**: `POST /recognition`  
+**Rate Limit**: 20 requests per minute  
+
+**Request Body**:
+```json
+{
+  "sender_id": "2022CS001",
+  "recipient_id": "2022CS002",
+  "credits": 15,
+  "message": "Great job on the project!"
+}
 ```
 
-**Response:**
+**Validation Rules**:
+- `sender_id`: Required, 1-50 characters
+- `recipient_id`: Required, 1-50 characters
+- `credits`: Required, 1-100 (positive integer)
+- `message`: Optional, max 500 characters
+
+**Business Rules**:
+- ✅ Cannot send credits to yourself
+- ✅ Must have sufficient available credits
+- ✅ Cannot exceed monthly sending limit (100 credits)
+- ✅ Credits deducted from sender's available balance
+- ✅ Credits added to recipient's received balance
+
+**Success Response (201)**:
 ```json
 {
   "message": "Recognition created successfully",
@@ -179,7 +247,7 @@ curl -X POST http://localhost:5000/recognition \
     "recipient_id": "2022CS002",
     "recipient_name": "Bob Smith",
     "credits": 15,
-    "message": "Great job on the project presentation!",
+    "message": "Great job on the project!",
     "endorsement_count": 0,
     "created_at": "2025-11-13T08:10:00.123456"
   },
@@ -188,24 +256,21 @@ curl -X POST http://localhost:5000/recognition \
 }
 ```
 
-**Error Example (Self-recognition):**
+**Error Responses**:
 ```json
+// Self-recognition (400)
 {
   "error": "Cannot send credits to yourself"
 }
-```
 
-**Error Example (Insufficient credits):**
-```json
+// Insufficient credits (400)
 {
   "error": "Insufficient credits",
   "available_credits": 10,
   "requested_credits": 15
 }
-```
 
-**Error Example (Monthly limit exceeded):**
-```json
+// Monthly limit exceeded (400)
 {
   "error": "Monthly sending limit exceeded",
   "monthly_limit": 100,
@@ -215,21 +280,30 @@ curl -X POST http://localhost:5000/recognition \
 }
 ```
 
+**cURL Example**:
+```bash
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sender_id": "2022CS001",
+    "recipient_id": "2022CS002",
+    "credits": 15,
+    "message": "Great job on the project!"
+  }'
+```
+
 ---
 
 ### 4. List Recognitions
 
-**Request (All):**
-```bash
-curl -X GET http://localhost:5000/recognitions
-```
+**Endpoint**: `GET /recognitions`  
+**Rate Limit**: 30 requests per minute  
 
-**Request (Filtered by student):**
-```bash
-curl -X GET "http://localhost:5000/recognitions?student_id=2022CS001&limit=20"
-```
+**Query Parameters**:
+- `student_id` (optional): Filter by sender or recipient
+- `limit` (optional): Limit results (default: 50)
 
-**Response:**
+**Success Response (200)**:
 ```json
 {
   "count": 2,
@@ -252,7 +326,7 @@ curl -X GET "http://localhost:5000/recognitions?student_id=2022CS001&limit=20"
       "recipient_id": "2022CS002",
       "recipient_name": "Bob Smith",
       "credits": 15,
-      "message": "Great job on the project presentation!",
+      "message": "Great job!",
       "endorsement_count": 0,
       "created_at": "2025-11-13T08:10:00.123456"
     }
@@ -260,21 +334,40 @@ curl -X GET "http://localhost:5000/recognitions?student_id=2022CS001&limit=20"
 }
 ```
 
+**cURL Examples**:
+```bash
+# Get all recognitions
+curl -X GET http://localhost:5000/recognitions
+
+# Filter by student
+curl -X GET "http://localhost:5000/recognitions?student_id=2022CS001&limit=20"
+```
+
 ---
 
 ### 5. Create Endorsement
 
-**Request:**
-```bash
-curl -X POST http://localhost:5000/endorsement \
-  -H "Content-Type: application/json" \
-  -d '{
-    "recognition_id": 1,
-    "endorser_id": "2022CS003"
-  }'
+**Endpoint**: `POST /endorsement`  
+**Rate Limit**: 20 requests per minute  
+
+**Request Body**:
+```json
+{
+  "recognition_id": 1,
+  "endorser_id": "2022CS003"
+}
 ```
 
-**Response:**
+**Validation Rules**:
+- `recognition_id`: Required, positive integer
+- `endorser_id`: Required, 1-50 characters
+
+**Business Rules**:
+- ✅ Each student can endorse a recognition only once
+- ✅ Endorsements don't affect credit balances
+- ✅ Just increments endorsement count
+
+**Success Response (201)**:
 ```json
 {
   "message": "Endorsement created successfully",
@@ -289,28 +382,50 @@ curl -X POST http://localhost:5000/endorsement \
 }
 ```
 
-**Error Example (Already endorsed):**
+**Error Response**:
 ```json
+// Already endorsed (400)
 {
   "error": "You have already endorsed this recognition"
 }
+```
+
+**cURL Example**:
+```bash
+curl -X POST http://localhost:5000/endorsement \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recognition_id": 1,
+    "endorser_id": "2022CS003"
+  }'
 ```
 
 ---
 
 ### 6. Redeem Credits
 
-**Request:**
-```bash
-curl -X POST http://localhost:5000/redemption \
-  -H "Content-Type: application/json" \
-  -d '{
-    "student_id": "2022CS002",
-    "credits": 10
-  }'
+**Endpoint**: `POST /redemption`  
+**Rate Limit**: 10 requests per minute  
+
+**Request Body**:
+```json
+{
+  "student_id": "2022CS002",
+  "credits": 10
+}
 ```
 
-**Response:**
+**Validation Rules**:
+- `student_id`: Required, 1-50 characters
+- `credits`: Required, positive integer
+
+**Business Rules**:
+- ✅ Conversion rate: **₹5 per credit**
+- ✅ Credits permanently deducted from **received_credits**
+- ✅ Can only redeem received credits (not available credits)
+- ✅ Generates voucher with monetary value
+
+**Success Response (201)**:
 ```json
 {
   "message": "Redemption successful",
@@ -326,8 +441,9 @@ curl -X POST http://localhost:5000/redemption \
 }
 ```
 
-**Error Example (Insufficient credits):**
+**Error Response**:
 ```json
+// Insufficient credits (400)
 {
   "error": "Insufficient received credits to redeem",
   "available_credits": 5,
@@ -335,16 +451,24 @@ curl -X POST http://localhost:5000/redemption \
 }
 ```
 
+**cURL Example**:
+```bash
+curl -X POST http://localhost:5000/redemption \
+  -H "Content-Type: application/json" \
+  -d '{
+    "student_id": "2022CS002",
+    "credits": 10
+  }'
+```
+
 ---
 
 ### 7. List Redemptions
 
-**Request:**
-```bash
-curl -X GET http://localhost:5000/redemptions/2022CS002
-```
+**Endpoint**: `GET /redemptions/<student_id>`  
+**Rate Limit**: 30 requests per minute  
 
-**Response:**
+**Success Response (200)**:
 ```json
 {
   "student_id": "2022CS002",
@@ -373,16 +497,28 @@ curl -X GET http://localhost:5000/redemptions/2022CS002
 }
 ```
 
----
-
-### 8. Get Leaderboard
-
-**Request:**
+**cURL Example**:
 ```bash
-curl -X GET "http://localhost:5000/leaderboard?limit=5"
+curl -X GET http://localhost:5000/redemptions/2022CS002
 ```
 
-**Response:**
+---
+
+### 8. Get Leaderboard (Step-Up Challenge)
+
+**Endpoint**: `GET /leaderboard`  
+**Rate Limit**: 30 requests per minute  
+
+**Query Parameters**:
+- `limit` (optional): Number of top students (default: 10)
+
+**Business Rules**:
+- ✅ Ranked by total credits received (descending)
+- ✅ Tie-breaker: student ID (ascending)
+- ✅ Includes recognition count and endorsement totals
+- ✅ Configurable limit parameter
+
+**Success Response (200)**:
 ```json
 {
   "leaderboard": [
@@ -401,30 +537,25 @@ curl -X GET "http://localhost:5000/leaderboard?limit=5"
       "total_credits_received": 30,
       "recognitions_received": 2,
       "total_endorsements": 3
-    },
-    {
-      "rank": 3,
-      "student_id": "2022CS003",
-      "student_name": "Charlie Davis",
-      "total_credits_received": 20,
-      "recognitions_received": 1,
-      "total_endorsements": 1
     }
   ],
   "total_students": 5
 }
 ```
 
----
-
-### 9. Manual Credit Reset
-
-**Request:**
+**cURL Example**:
 ```bash
-curl -X POST http://localhost:5000/reset-credits/2022CS001
+curl -X GET "http://localhost:5000/leaderboard?limit=10"
 ```
 
-**Response:**
+---
+
+### 9. Manual Credit Reset (Step-Up Challenge)
+
+**Endpoint**: `POST /reset-credits/<student_id>`  
+**Rate Limit**: Default limits  
+
+**Success Response (200)**:
 ```json
 {
   "message": "Credits reset successfully",
@@ -437,91 +568,392 @@ curl -X POST http://localhost:5000/reset-credits/2022CS001
 }
 ```
 
+**cURL Example**:
+```bash
+curl -X POST http://localhost:5000/reset-credits/2022CS001
+```
+
+**Note**: This endpoint is for testing. In production, credit reset happens **automatically** when:
+- `GET /students/<id>` is called
+- `POST /recognition` is called
+- Any other endpoint that accesses student data
+
 ---
 
-## Business Rules
+## 📜 Business Rules
 
 ### Recognition Rules
-1. Each student receives **100 credits every month** (reset at start of calendar month)
-2. **Cannot send credits to yourself** (self-recognition not allowed)
-3. **Monthly sending limit**: 100 credits per calendar month
-4. Cannot send more credits than current balance
-5. Cannot exceed monthly sending limit
+- ✅ Each student receives **100 credits every month**
+- ✅ **Cannot send credits to yourself** (self-recognition not allowed)
+- ✅ **Monthly sending limit**: 100 credits per calendar month
+- ✅ Cannot send more credits than available balance
+- ✅ Cannot exceed monthly sending limit
+- ✅ Credits deducted from sender's `available_credits`
+- ✅ Credits added to recipient's `received_credits`
 
 ### Endorsement Rules
-1. Each endorser can endorse a recognition **only once**
-2. Endorsements are just a count - they **don't affect credit balances**
+- ✅ Each endorser can endorse a recognition **only once**
+- ✅ Enforced by unique constraint: (recognition_id, endorser_id)
+- ✅ Endorsements are just a count
+- ✅ **No effect on credit balances**
+- ✅ Can endorse any recognition (including your own)
 
 ### Redemption Rules
-1. Credits converted to vouchers at **₹5 per credit**
-2. Credits are **permanently deducted** from received balance
-3. Can only redeem **received credits** (not available/sending credits)
+- ✅ Conversion rate: **₹5 per credit**
+- ✅ Credits are **permanently deducted** from `received_credits`
+- ✅ Can only redeem **received credits** (not available credits)
+- ✅ Generates voucher with monetary value
+- ✅ No limit on redemption amount (as long as sufficient received credits)
 
-### Credit Reset Rules (Step-Up Challenge)
-1. Available credits reset to **100 at start of each month**
-2. Up to **50 unused credits** can be carried forward
-3. If more than 50 unused credits, only 50 carry forward
-4. Monthly sending limit resets to 100
-5. Auto-reset happens on any API call that accesses student data
+### Credit Reset Rules (Step-Up Challenge - Automated)
+- ✅ Available credits reset to **100 at start of each month**
+- ✅ Up to **50 unused credits** can be carried forward
+- ✅ If > 50 unused credits, only 50 carry forward
+- ✅ Monthly sending limit (`credits_sent_this_month`) resets to **0**
+- ✅ **Automatic**: Triggers on any API call that accesses student data
+- ✅ Only resets when calendar month actually changes
+- ✅ Tracked via `last_reset_month` field (YYYY-MM format)
 
 ### Leaderboard Rules (Step-Up Challenge)
-1. Rank by **total credits received** (descending)
-2. Tie-breaker: **student ID** (ascending)
-3. Includes **recognition count** and **endorsement totals**
-4. Support for **limit parameter**
+- ✅ Ranked by **total credits received** (descending)
+- ✅ Tie-breaker: **student ID** (ascending - alphabetical)
+- ✅ Includes **recognition count** (recognitions received)
+- ✅ Includes **total endorsements** (endorsements on received recognitions)
+- ✅ Configurable **limit parameter**
+- ✅ Returns rank, student info, stats
 
 ---
 
-## Database Schema
+## 🏗️ Architecture
 
-### Students Table
-- `id` (String, Primary Key): Student ID
-- `name` (String): Student name
-- `email` (String, Unique): Student email
-- `available_credits` (Integer): Credits available to send
-- `received_credits` (Integer): Credits received from others
-- `credits_sent_this_month` (Integer): Track monthly sending
-- `last_reset_month` (String): Last reset month (YYYY-MM)
-- `created_at` (DateTime): Creation timestamp
-
-### Recognitions Table
-- `id` (Integer, Primary Key): Recognition ID
-- `sender_id` (Foreign Key): Sender student ID
-- `recipient_id` (Foreign Key): Recipient student ID
-- `credits` (Integer): Credits transferred
-- `message` (Text): Recognition message
-- `created_at` (DateTime): Creation timestamp
-
-### Endorsements Table
-- `id` (Integer, Primary Key): Endorsement ID
-- `recognition_id` (Foreign Key): Recognition being endorsed
-- `endorser_id` (Foreign Key): Endorser student ID
-- `created_at` (DateTime): Creation timestamp
-- Unique constraint on (recognition_id, endorser_id)
-
-### Redemptions Table
-- `id` (Integer, Primary Key): Redemption ID
-- `student_id` (Foreign Key): Student redeeming credits
-- `credits_redeemed` (Integer): Credits redeemed
-- `voucher_value` (Float): Voucher value in ₹
-- `created_at` (DateTime): Creation timestamp
-
----
-
-## Technology Stack
+### Technology Stack
 - **Framework**: Flask 3.0.0
-- **Database**: SQLite (via Flask-SQLAlchemy)
-- **ORM**: SQLAlchemy
-- **Date Handling**: python-dateutil
+- **ORM**: SQLAlchemy (Flask-SQLAlchemy 3.1.1)
+- **Database**: SQLite
+- **Validation**: Pydantic 2.10.5
+- **Rate Limiting**: Flask-Limiter 3.5.0
+- **Email Validation**: email-validator 2.2.0
+- **Logging**: Python logging module
+
+### Project Structure
+```
+src/
+├── app.py                  # Main Flask application
+├── models.py               # SQLAlchemy database models
+├── schemas.py              # Pydantic validation schemas
+├── requirements.txt        # Python dependencies
+├── readme.md              # This file
+├── test_api.ps1           # Automated test suite
+├── test_month_change.py   # Credit reset tests
+├── test_specific_rules.ps1 # Business rule tests
+└── boostly.db             # SQLite database (created on first run)
+```
+
+### Database Schema
+
+**Students Table** (`students`):
+```sql
+id                      VARCHAR(50) PRIMARY KEY
+name                    VARCHAR(100) NOT NULL
+email                   VARCHAR(100) UNIQUE NOT NULL
+available_credits       INTEGER DEFAULT 100 NOT NULL
+received_credits        INTEGER DEFAULT 0 NOT NULL
+credits_sent_this_month INTEGER DEFAULT 0 NOT NULL
+last_reset_month        VARCHAR(7)  -- Format: YYYY-MM
+created_at              DATETIME
+```
+
+**Recognitions Table** (`recognitions`):
+```sql
+id            INTEGER PRIMARY KEY AUTOINCREMENT
+sender_id     VARCHAR(50) FOREIGN KEY -> students.id
+recipient_id  VARCHAR(50) FOREIGN KEY -> students.id
+credits       INTEGER NOT NULL
+message       TEXT
+created_at    DATETIME
+```
+
+**Endorsements Table** (`endorsements`):
+```sql
+id              INTEGER PRIMARY KEY AUTOINCREMENT
+recognition_id  INTEGER FOREIGN KEY -> recognitions.id
+endorser_id     VARCHAR(50) FOREIGN KEY -> students.id
+created_at      DATETIME
+UNIQUE (recognition_id, endorser_id)  -- Prevents duplicate endorsements
+```
+
+**Redemptions Table** (`redemptions`):
+```sql
+id               INTEGER PRIMARY KEY AUTOINCREMENT
+student_id       VARCHAR(50) FOREIGN KEY -> students.id
+credits_redeemed INTEGER NOT NULL
+voucher_value    FLOAT NOT NULL  -- In ₹
+created_at       DATETIME
+```
 
 ---
 
-## Testing
+## 🛡️ Security & Validation
 
-See `../test-cases/test-cases.txt` for detailed test case documentation.
+### 1. Pydantic Validation
+All POST endpoints use Pydantic models for request validation:
+
+**StudentCreate Schema**:
+- `id`: 1-50 chars, no whitespace only
+- `name`: 1-100 chars, no whitespace only
+- `email`: Valid email format (EmailStr with email-validator)
+
+**RecognitionCreate Schema**:
+- `sender_id`: 1-50 chars
+- `recipient_id`: 1-50 chars
+- `credits`: 1-100 (positive integer)
+- `message`: Optional, max 500 chars
+
+**EndorsementCreate Schema**:
+- `recognition_id`: Positive integer
+- `endorser_id`: 1-50 chars
+
+**RedemptionCreate Schema**:
+- `student_id`: 1-50 chars
+- `credits`: Positive integer
+
+**Validation Error Example**:
+```json
+{
+  "error": "Validation failed",
+  "details": [
+    {
+      "loc": ["email"],
+      "msg": "value is not a valid email address: An email address must have an @-sign.",
+      "type": "value_error"
+    }
+  ]
+}
+```
+
+### 2. Rate Limiting
+Protection against API abuse with customized limits per endpoint:
+
+| Endpoint Type | Limit | Reason |
+|---------------|-------|--------|
+| Create Student | 10/min | Prevent spam registration |
+| Get Student | 30/min | Allow frequent reads |
+| Recognition | 20/min | Balance usage vs protection |
+| List Recognitions | 30/min | Allow frequent browsing |
+| Endorsement | 20/min | Prevent endorsement spam |
+| Redemption | 10/min | Sensitive financial operation |
+| List Redemptions | 30/min | Allow frequent checks |
+| Leaderboard | 30/min | Allow frequent viewing |
+| Global Default | 200/day, 50/hour | Overall protection |
+
+**Rate Limit Error (429)**:
+```json
+{
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Please slow down and try again later."
+}
+```
+
+### 3. Error Handling
+**Secure Error Messages**:
+- ✅ No internal error details leaked to users
+- ✅ Generic error messages for server errors
+- ✅ Detailed logging for debugging (server-side only)
+- ✅ Specific error messages for validation and business rules
+
+**Error Handlers**:
+- `400`: Bad Request (validation failed)
+- `404`: Not Found (resource doesn't exist)
+- `405`: Method Not Allowed
+- `429`: Rate Limit Exceeded
+- `500`: Internal Server Error (generic message)
+
+### 4. Database Security
+- ✅ **SQLAlchemy ORM**: Prevents SQL injection
+- ✅ **Unique Constraints**: Database-level duplicate prevention
+- ✅ **Foreign Key Constraints**: Maintains referential integrity
+- ✅ **Transaction Management**: Automatic rollback on errors
+
+### 5. Logging
+**Comprehensive logging throughout the application**:
+- INFO: Successful operations (student created, recognition made, etc.)
+- ERROR: Database errors, unexpected exceptions
+- WARNING: Rate limit exceeded
+- All logs include relevant context (student IDs, amounts, etc.)
 
 ---
 
-## Author
-Built with Flask and Python for the Rippling AI Coding Round
+## 🧪 Testing
 
+### Automated Test Suite
+
+**Run all tests**:
+```powershell
+.\test_api.ps1
+```
+
+**Test Coverage**:
+- ✅ Student creation and retrieval
+- ✅ Recognition with business rule validation
+- ✅ Self-recognition prevention
+- ✅ Endorsement with duplicate prevention
+- ✅ Redemption system
+- ✅ Leaderboard generation
+- ✅ Credit reset mechanism
+- ✅ Monthly sending limit enforcement
+
+**Run credit reset tests**:
+```bash
+python test_month_change.py
+```
+
+**Run business rule tests**:
+```powershell
+.\test_specific_rules.ps1
+```
+
+### Manual Testing
+
+See `../test-cases/test-cases.txt` for detailed test scenarios, expected results, and step-by-step instructions.
+
+### Sample Test Workflow
+
+1. **Initialize Database**:
+```bash
+curl -X POST http://localhost:5000/init-db
+```
+
+2. **Create Students**:
+```bash
+curl -X POST http://localhost:5000/students -H "Content-Type: application/json" \
+  -d '{"id":"2022CS001","name":"Alice","email":"alice@university.edu"}'
+
+curl -X POST http://localhost:5000/students -H "Content-Type: application/json" \
+  -d '{"id":"2022CS002","name":"Bob","email":"bob@university.edu"}'
+```
+
+3. **Send Recognition**:
+```bash
+curl -X POST http://localhost:5000/recognition -H "Content-Type: application/json" \
+  -d '{"sender_id":"2022CS001","recipient_id":"2022CS002","credits":15,"message":"Great work!"}'
+```
+
+4. **Endorse Recognition**:
+```bash
+curl -X POST http://localhost:5000/endorsement -H "Content-Type: application/json" \
+  -d '{"recognition_id":1,"endorser_id":"2022CS001"}'
+```
+
+5. **Redeem Credits**:
+```bash
+curl -X POST http://localhost:5000/redemption -H "Content-Type: application/json" \
+  -d '{"student_id":"2022CS002","credits":10}'
+```
+
+6. **View Leaderboard**:
+```bash
+curl -X GET "http://localhost:5000/leaderboard?limit=10"
+```
+
+---
+
+## 🔧 Configuration
+
+### Rate Limit Configuration
+Edit `app.py` to customize rate limits:
+
+```python
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],  # Adjust global limits
+    storage_uri="memory://"
+)
+
+# Adjust per-endpoint limits
+@app.route('/students', methods=['POST'])
+@limiter.limit("10 per minute")  # Customize this
+def create_student():
+    ...
+```
+
+### Database Configuration
+By default, SQLite database is stored at `src/boostly.db`.
+
+To change database location, edit `app.py`:
+```python
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///path/to/your/database.db'
+```
+
+### Logging Configuration
+Adjust logging level in `app.py`:
+```python
+logging.basicConfig(level=logging.INFO)  # Change to DEBUG for more details
+```
+
+---
+
+## 📊 Performance Considerations
+
+### Credit Reset Optimization
+- Reset only triggers when month changes (checked via `last_reset_month`)
+- Minimal database queries (single update)
+- Automatic triggering prevents manual intervention
+
+### Database Indexing
+- Primary keys on all tables
+- Foreign key indexes for relationships
+- Unique constraint on (recognition_id, endorser_id) for fast duplicate checks
+
+### Rate Limiting
+- Memory-based storage for fast access
+- Per-IP tracking prevents single-source abuse
+- Customized limits per endpoint type
+
+---
+
+## 🚨 Troubleshooting
+
+### Issue: "Rate limit exceeded"
+**Solution**: Wait for the rate limit window to expire, or adjust limits in code.
+
+### Issue: "Database error occurred"
+**Solution**: 
+- Check if `boostly.db` file has write permissions
+- Try deleting `boostly.db` and reinitializing with `/init-db`
+
+### Issue: "Validation failed"
+**Solution**: Check the `details` array in the error response for specific field errors.
+
+### Issue: Credits not resetting
+**Solution**: 
+- Reset is automatic but only when month changes
+- Use `/reset-credits/<student_id>` to manually trigger for testing
+- Check `last_reset_month` field in student record
+
+---
+
+## 📄 License
+
+This project is created as part of the Rippling AI Coding Round.
+
+---
+
+## 👤 Author
+
+**Harsh Anand**  
+Student ID: 2K22/CO/195  
+
+---
+
+## 🙏 Acknowledgments
+
+- Built with Flask and Python
+- Uses Pydantic for robust validation
+- Implements Flask-Limiter for API protection
+- SQLAlchemy for elegant database management
+- email-validator for email validation
+
+---
+
+**⭐ For questions or issues, please refer to the test cases documentation or review the inline code comments.**
