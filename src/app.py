@@ -3,10 +3,20 @@ Boostly - Credit Recognition and Redemption Platform
 Main Flask application with all API endpoints
 """
 from flask import Flask, request, jsonify
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from models import db, Student, Recognition, Endorsement, Redemption
+from schemas import StudentCreate, RecognitionCreate, EndorsementCreate, RedemptionCreate
+from pydantic import ValidationError
 from datetime import datetime
 from sqlalchemy import func, desc
+from sqlalchemy.exc import SQLAlchemyError
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -17,6 +27,14 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
 db.init_app(app)
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
 
 def get_current_month():
@@ -79,6 +97,7 @@ def home():
 # ==================== STUDENT MANAGEMENT ====================
 
 @app.route('/students', methods=['POST'])
+@limiter.limit("10 per minute")
 def create_student():
     """
     Create a new student
@@ -87,23 +106,28 @@ def create_student():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        if not data or 'id' not in data or 'name' not in data or 'email' not in data:
-            return jsonify({'error': 'Missing required fields: id, name, email'}), 400
+        # Validate with Pydantic
+        try:
+            student_data = StudentCreate(**data)
+        except ValidationError as e:
+            return jsonify({
+                'error': 'Validation failed',
+                'details': e.errors()
+            }), 400
         
         # Check if student already exists
-        if Student.query.get(data['id']):
+        if Student.query.get(student_data.id):
             return jsonify({'error': 'Student with this ID already exists'}), 400
         
         # Check if email already exists
-        if Student.query.filter_by(email=data['email']).first():
+        if Student.query.filter_by(email=student_data.email).first():
             return jsonify({'error': 'Student with this email already exists'}), 400
         
         # Create new student
         student = Student(
-            id=data['id'],
-            name=data['name'],
-            email=data['email'],
+            id=student_data.id,
+            name=student_data.name,
+            email=student_data.email,
             available_credits=100,
             received_credits=0,
             credits_sent_this_month=0,
@@ -113,17 +137,25 @@ def create_student():
         db.session.add(student)
         db.session.commit()
         
+        logger.info(f"Student created: {student_data.id}")
+        
         return jsonify({
             'message': 'Student created successfully',
             'student': student.to_dict()
         }), 201
         
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error creating student: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error creating student: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 @app.route('/students/<student_id>', methods=['GET'])
+@limiter.limit("30 per minute")
 def get_student(student_id):
     """
     Get student details by ID
@@ -155,13 +187,18 @@ def get_student(student_id):
         
         return jsonify(response), 200
         
+    except SQLAlchemyError as e:
+        logger.error(f"Database error fetching student {student_id}: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error fetching student {student_id}: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== RECOGNITION ====================
 
 @app.route('/recognition', methods=['POST'])
+@limiter.limit("20 per minute")
 def create_recognition():
     """
     Create a recognition (transfer credits from sender to recipient)
@@ -180,26 +217,22 @@ def create_recognition():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        if not data or 'sender_id' not in data or 'recipient_id' not in data or 'credits' not in data:
-            return jsonify({'error': 'Missing required fields: sender_id, recipient_id, credits'}), 400
-        
-        sender_id = data['sender_id']
-        recipient_id = data['recipient_id']
-        credits = data['credits']
-        message = data.get('message', '')
-        
-        # Validate credits amount
-        if not isinstance(credits, int) or credits <= 0:
-            return jsonify({'error': 'Credits must be a positive integer'}), 400
+        # Validate with Pydantic
+        try:
+            recognition_data = RecognitionCreate(**data)
+        except ValidationError as e:
+            return jsonify({
+                'error': 'Validation failed',
+                'details': e.errors()
+            }), 400
         
         # Rule: Cannot send credits to self
-        if sender_id == recipient_id:
+        if recognition_data.sender_id == recognition_data.recipient_id:
             return jsonify({'error': 'Cannot send credits to yourself'}), 400
         
         # Get sender and recipient
-        sender = Student.query.get(sender_id)
-        recipient = Student.query.get(recipient_id)
+        sender = Student.query.get(recognition_data.sender_id)
+        recipient = Student.query.get(recognition_data.recipient_id)
         
         if not sender:
             return jsonify({'error': 'Sender not found'}), 404
@@ -211,38 +244,40 @@ def create_recognition():
         reset_monthly_credits(recipient)
         
         # Rule: Check if sender has sufficient available credits
-        if sender.available_credits < credits:
+        if sender.available_credits < recognition_data.credits:
             return jsonify({
                 'error': 'Insufficient credits',
                 'available_credits': sender.available_credits,
-                'requested_credits': credits
+                'requested_credits': recognition_data.credits
             }), 400
         
         # Rule: Check monthly sending limit
-        if sender.credits_sent_this_month + credits > 100:
+        if sender.credits_sent_this_month + recognition_data.credits > 100:
             return jsonify({
                 'error': 'Monthly sending limit exceeded',
                 'monthly_limit': 100,
                 'already_sent': sender.credits_sent_this_month,
-                'requested_credits': credits,
+                'requested_credits': recognition_data.credits,
                 'remaining_limit': 100 - sender.credits_sent_this_month
             }), 400
         
         # Process the recognition
-        sender.available_credits -= credits
-        sender.credits_sent_this_month += credits
-        recipient.received_credits += credits
+        sender.available_credits -= recognition_data.credits
+        sender.credits_sent_this_month += recognition_data.credits
+        recipient.received_credits += recognition_data.credits
         
         # Create recognition record
         recognition = Recognition(
-            sender_id=sender_id,
-            recipient_id=recipient_id,
-            credits=credits,
-            message=message
+            sender_id=recognition_data.sender_id,
+            recipient_id=recognition_data.recipient_id,
+            credits=recognition_data.credits,
+            message=recognition_data.message or ''
         )
         
         db.session.add(recognition)
         db.session.commit()
+        
+        logger.info(f"Recognition created: {recognition_data.sender_id} -> {recognition_data.recipient_id} ({recognition_data.credits} credits)")
         
         return jsonify({
             'message': 'Recognition created successfully',
@@ -251,12 +286,18 @@ def create_recognition():
             'recipient_total_credits': recipient.received_credits
         }), 201
         
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error creating recognition: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error creating recognition: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 @app.route('/recognitions', methods=['GET'])
+@limiter.limit("30 per minute")
 def list_recognitions():
     """
     List all recognitions
@@ -283,13 +324,18 @@ def list_recognitions():
             'recognitions': [r.to_dict() for r in recognitions]
         }), 200
         
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing recognitions: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error listing recognitions: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== ENDORSEMENTS ====================
 
 @app.route('/endorsement', methods=['POST'])
+@limiter.limit("20 per minute")
 def create_endorsement():
     """
     Endorse a recognition
@@ -304,27 +350,29 @@ def create_endorsement():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        if not data or 'recognition_id' not in data or 'endorser_id' not in data:
-            return jsonify({'error': 'Missing required fields: recognition_id, endorser_id'}), 400
-        
-        recognition_id = data['recognition_id']
-        endorser_id = data['endorser_id']
+        # Validate with Pydantic
+        try:
+            endorsement_data = EndorsementCreate(**data)
+        except ValidationError as e:
+            return jsonify({
+                'error': 'Validation failed',
+                'details': e.errors()
+            }), 400
         
         # Check if recognition exists
-        recognition = Recognition.query.get(recognition_id)
+        recognition = Recognition.query.get(endorsement_data.recognition_id)
         if not recognition:
             return jsonify({'error': 'Recognition not found'}), 404
         
         # Check if endorser exists
-        endorser = Student.query.get(endorser_id)
+        endorser = Student.query.get(endorsement_data.endorser_id)
         if not endorser:
             return jsonify({'error': 'Endorser not found'}), 404
         
         # Rule: Check if already endorsed
         existing_endorsement = Endorsement.query.filter_by(
-            recognition_id=recognition_id,
-            endorser_id=endorser_id
+            recognition_id=endorsement_data.recognition_id,
+            endorser_id=endorsement_data.endorser_id
         ).first()
         
         if existing_endorsement:
@@ -332,15 +380,17 @@ def create_endorsement():
         
         # Create endorsement
         endorsement = Endorsement(
-            recognition_id=recognition_id,
-            endorser_id=endorser_id
+            recognition_id=endorsement_data.recognition_id,
+            endorser_id=endorsement_data.endorser_id
         )
         
         db.session.add(endorsement)
         db.session.commit()
         
         # Get updated endorsement count
-        endorsement_count = Endorsement.query.filter_by(recognition_id=recognition_id).count()
+        endorsement_count = Endorsement.query.filter_by(recognition_id=endorsement_data.recognition_id).count()
+        
+        logger.info(f"Endorsement created: {endorsement_data.endorser_id} endorsed recognition #{endorsement_data.recognition_id}")
         
         return jsonify({
             'message': 'Endorsement created successfully',
@@ -348,14 +398,20 @@ def create_endorsement():
             'total_endorsements': endorsement_count
         }), 201
         
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error creating endorsement: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error creating endorsement: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== REDEMPTION ====================
 
 @app.route('/redemption', methods=['POST'])
+@limiter.limit("10 per minute")
 def create_redemption():
     """
     Redeem credits for voucher
@@ -371,19 +427,17 @@ def create_redemption():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        if not data or 'student_id' not in data or 'credits' not in data:
-            return jsonify({'error': 'Missing required fields: student_id, credits'}), 400
-        
-        student_id = data['student_id']
-        credits_to_redeem = data['credits']
-        
-        # Validate credits amount
-        if not isinstance(credits_to_redeem, int) or credits_to_redeem <= 0:
-            return jsonify({'error': 'Credits must be a positive integer'}), 400
+        # Validate with Pydantic
+        try:
+            redemption_data = RedemptionCreate(**data)
+        except ValidationError as e:
+            return jsonify({
+                'error': 'Validation failed',
+                'details': e.errors()
+            }), 400
         
         # Get student
-        student = Student.query.get(student_id)
+        student = Student.query.get(redemption_data.student_id)
         if not student:
             return jsonify({'error': 'Student not found'}), 404
         
@@ -391,28 +445,30 @@ def create_redemption():
         reset_monthly_credits(student)
         
         # Rule: Check if student has sufficient received credits
-        if student.received_credits < credits_to_redeem:
+        if student.received_credits < redemption_data.credits:
             return jsonify({
                 'error': 'Insufficient received credits to redeem',
                 'available_credits': student.received_credits,
-                'requested_credits': credits_to_redeem
+                'requested_credits': redemption_data.credits
             }), 400
         
         # Calculate voucher value (₹5 per credit)
-        voucher_value = credits_to_redeem * 5
+        voucher_value = redemption_data.credits * 5
         
         # Deduct credits
-        student.received_credits -= credits_to_redeem
+        student.received_credits -= redemption_data.credits
         
         # Create redemption record
         redemption = Redemption(
-            student_id=student_id,
-            credits_redeemed=credits_to_redeem,
+            student_id=redemption_data.student_id,
+            credits_redeemed=redemption_data.credits,
             voucher_value=voucher_value
         )
         
         db.session.add(redemption)
         db.session.commit()
+        
+        logger.info(f"Redemption created: {redemption_data.student_id} redeemed {redemption_data.credits} credits")
         
         return jsonify({
             'message': 'Redemption successful',
@@ -420,12 +476,18 @@ def create_redemption():
             'remaining_credits': student.received_credits
         }), 201
         
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error creating redemption: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error creating redemption: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 @app.route('/redemptions/<student_id>', methods=['GET'])
+@limiter.limit("30 per minute")
 def list_redemptions(student_id):
     """
     List all redemptions for a student
@@ -451,13 +513,18 @@ def list_redemptions(student_id):
             'redemptions': [r.to_dict() for r in redemptions]
         }), 200
         
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing redemptions: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error listing redemptions: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== LEADERBOARD (Step-Up Challenge) ====================
 
 @app.route('/leaderboard', methods=['GET'])
+@limiter.limit("30 per minute")
 def get_leaderboard():
     """
     Get top recipients leaderboard
@@ -506,8 +573,12 @@ def get_leaderboard():
             'total_students': len(students)
         }), 200
         
+    except SQLAlchemyError as e:
+        logger.error(f"Database error generating leaderboard: {str(e)}")
+        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error generating leaderboard: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== CREDIT RESET (Step-Up Challenge) ====================
@@ -558,14 +629,46 @@ def init_database():
 
 # ==================== ERROR HANDLERS ====================
 
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded"""
+    logger.warning(f"Rate limit exceeded: {request.remote_addr}")
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'message': 'Too many requests. Please slow down and try again later.'
+    }), 429
+
+
 @app.errorhandler(404)
 def not_found(e):
+    """Handle 404 errors"""
     return jsonify({'error': 'Endpoint not found'}), 404
+
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    """Handle method not allowed"""
+    return jsonify({'error': 'Method not allowed'}), 405
+
+
+@app.errorhandler(400)
+def bad_request(e):
+    """Handle bad requests"""
+    return jsonify({'error': 'Bad request'}), 400
 
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({'error': 'Internal server error'}), 500
+    """Handle internal server errors"""
+    logger.error(f"Internal server error: {str(e)}")
+    return jsonify({'error': 'An internal error occurred. Please try again later.'}), 500
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle unexpected exceptions"""
+    logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+    return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 # ==================== RUN APPLICATION ====================
