@@ -1,0 +1,554 @@
+===============================================
+BOOSTLY - TEST CASES DOCUMENTATION
+===============================================
+
+This document provides step-by-step instructions to test all features of the Boostly application.
+
+Prerequisites:
+- Flask application is running on http://localhost:5000
+- Database has been initialized using POST /init-db
+
+===============================================
+TEST CASE 1: STUDENT MANAGEMENT
+===============================================
+
+Description: Test student creation and retrieval
+
+Steps:
+------
+1. Create first student
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS001", "name": "Alice Johnson", "email": "alice@university.edu"}'
+
+2. Create second student
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS002", "name": "Bob Smith", "email": "bob@university.edu"}'
+
+3. Create third student
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS003", "name": "Charlie Davis", "email": "charlie@university.edu"}'
+
+4. Get student details
+   curl -X GET http://localhost:5000/students/2022CS001
+
+Expected Results:
+-----------------
+✓ All students created successfully with status code 201
+✓ Each student starts with 100 available_credits
+✓ Each student starts with 0 received_credits
+✓ Each student has credits_sent_this_month = 0
+✓ Get student returns complete student information with stats
+
+Test Edge Cases:
+----------------
+1. Duplicate student ID
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS001", "name": "Test", "email": "test@university.edu"}'
+   Expected: Error "Student with this ID already exists"
+
+2. Duplicate email
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS999", "name": "Test", "email": "alice@university.edu"}'
+   Expected: Error "Student with this email already exists"
+
+3. Missing required fields
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS999"}'
+   Expected: Error "Missing required fields: id, name, email"
+
+===============================================
+TEST CASE 2: RECOGNITION - BASIC FUNCTIONALITY
+===============================================
+
+Description: Test credit transfer between students
+
+Steps:
+------
+1. Alice sends 15 credits to Bob
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS001", "recipient_id": "2022CS002", "credits": 15, "message": "Great job on the project!"}'
+
+2. Verify Alice's credits reduced
+   curl -X GET http://localhost:5000/students/2022CS001
+
+3. Verify Bob's received credits increased
+   curl -X GET http://localhost:5000/students/2022CS002
+
+4. List all recognitions
+   curl -X GET http://localhost:5000/recognitions
+
+Expected Results:
+-----------------
+✓ Recognition created successfully with status code 201
+✓ Alice's available_credits: 100 → 85
+✓ Alice's credits_sent_this_month: 0 → 15
+✓ Bob's received_credits: 0 → 15
+✓ Recognition appears in recognitions list
+✓ Recognition shows correct sender, recipient, credits, and message
+
+===============================================
+TEST CASE 3: RECOGNITION - BUSINESS RULES
+===============================================
+
+Description: Test recognition business rule validations
+
+Test Case 3.1: Self-Recognition (Should Fail)
+----------------------------------------------
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS001", "credits": 10, "message": "Testing"}'
+
+Expected: Error "Cannot send credits to yourself"
+
+Test Case 3.2: Insufficient Credits (Should Fail)
+--------------------------------------------------
+Setup: Send enough credits to deplete Alice's balance
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS003", "credits": 90, "message": "More credits"}'
+
+Then try to send more than available:
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS002", "credits": 10, "message": "Testing"}'
+
+Expected: Error "Insufficient credits" (Alice only has 85 - 90 = negative or insufficient)
+
+Test Case 3.3: Monthly Sending Limit (Should Fail)
+---------------------------------------------------
+Setup: Create new student and send 100 credits
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{"id": "2022CS004", "name": "David Lee", "email": "david@university.edu"}'
+
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS004", "recipient_id": "2022CS001", "credits": 100, "message": "Max limit"}'
+
+Then try to send more:
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS004", "recipient_id": "2022CS002", "credits": 1, "message": "Over limit"}'
+
+Expected: Error "Monthly sending limit exceeded"
+
+Test Case 3.4: Invalid Credits Amount (Should Fail)
+----------------------------------------------------
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS002", "credits": -5, "message": "Negative"}'
+
+Expected: Error "Credits must be a positive integer"
+
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS002", "credits": 0, "message": "Zero"}'
+
+Expected: Error "Credits must be a positive integer"
+
+===============================================
+TEST CASE 4: ENDORSEMENTS
+===============================================
+
+Description: Test endorsement functionality
+
+Steps:
+------
+1. Create a recognition to endorse
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS001", "recipient_id": "2022CS002", "credits": 20, "message": "Excellent work!"}'
+   
+   (Note the recognition ID from response, e.g., id: 1)
+
+2. Charlie endorses the recognition
+   curl -X POST http://localhost:5000/endorsement \
+     -H "Content-Type: application/json" \
+     -d '{"recognition_id": 1, "endorser_id": "2022CS003"}'
+
+3. David also endorses
+   curl -X POST http://localhost:5000/endorsement \
+     -H "Content-Type: application/json" \
+     -d '{"recognition_id": 1, "endorser_id": "2022CS004"}'
+
+4. View the recognition with endorsements
+   curl -X GET http://localhost:5000/recognitions
+
+Expected Results:
+-----------------
+✓ Both endorsements created successfully with status code 201
+✓ Recognition's endorsement_count increases: 0 → 1 → 2
+✓ Endorsements don't affect any credit balances
+✓ Total endorsements shown correctly
+
+Test Edge Case: Duplicate Endorsement (Should Fail)
+----------------------------------------------------
+curl -X POST http://localhost:5000/endorsement \
+  -H "Content-Type: application/json" \
+  -d '{"recognition_id": 1, "endorser_id": "2022CS003"}'
+
+Expected: Error "You have already endorsed this recognition"
+
+Test Edge Case: Non-existent Recognition (Should Fail)
+-------------------------------------------------------
+curl -X POST http://localhost:5000/endorsement \
+  -H "Content-Type: application/json" \
+  -d '{"recognition_id": 9999, "endorser_id": "2022CS003"}'
+
+Expected: Error "Recognition not found"
+
+===============================================
+TEST CASE 5: REDEMPTION
+===============================================
+
+Description: Test credit redemption to vouchers
+
+Setup:
+------
+Ensure Bob has some received credits from previous tests
+
+Steps:
+------
+1. Check Bob's current received credits
+   curl -X GET http://localhost:5000/students/2022CS002
+
+2. Bob redeems 10 credits
+   curl -X POST http://localhost:5000/redemption \
+     -H "Content-Type: application/json" \
+     -d '{"student_id": "2022CS002", "credits": 10}'
+
+3. Verify Bob's credits reduced
+   curl -X GET http://localhost:5000/students/2022CS002
+
+4. Bob redeems 5 more credits
+   curl -X POST http://localhost:5000/redemption \
+     -H "Content-Type: application/json" \
+     -d '{"student_id": "2022CS002", "credits": 5}'
+
+5. View Bob's redemption history
+   curl -X GET http://localhost:5000/redemptions/2022CS002
+
+Expected Results:
+-----------------
+✓ First redemption successful with status code 201
+✓ Voucher value = 10 * 5 = ₹50
+✓ Bob's received_credits reduced by 10
+✓ Second redemption creates voucher of ₹25 (5 * 5)
+✓ Redemption history shows both redemptions
+✓ Total credits redeemed = 15, Total voucher value = ₹75
+
+Test Edge Case: Insufficient Credits (Should Fail)
+---------------------------------------------------
+curl -X POST http://localhost:5000/redemption \
+  -H "Content-Type: application/json" \
+  -d '{"student_id": "2022CS002", "credits": 1000}'
+
+Expected: Error "Insufficient received credits to redeem"
+
+Test Edge Case: Redeem from Available Credits (Not Allowed)
+------------------------------------------------------------
+Note: A student with 100 available_credits but 0 received_credits cannot redeem
+curl -X POST http://localhost:5000/redemption \
+  -H "Content-Type: application/json" \
+  -d '{"student_id": "2022CS003", "credits": 10}'
+
+Expected: Error "Insufficient received credits to redeem"
+
+===============================================
+TEST CASE 6: LEADERBOARD (STEP-UP CHALLENGE)
+===============================================
+
+Description: Test leaderboard ranking
+
+Setup:
+------
+Create multiple recognitions to build diverse credit distributions
+
+Steps:
+------
+1. Create multiple students and recognitions
+   # Already have 2022CS001, 2022CS002, 2022CS003, 2022CS004
+   
+   # Give Bob (CS002) more credits
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS003", "recipient_id": "2022CS002", "credits": 25, "message": "Amazing!"}'
+   
+   # Give Alice (CS001) some credits
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS002", "recipient_id": "2022CS001", "credits": 30, "message": "Well done!"}'
+   
+   # Give Charlie (CS003) some credits
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS001", "recipient_id": "2022CS003", "credits": 15, "message": "Great!"}'
+
+2. Add endorsements to various recognitions for endorsement counts
+
+3. Get full leaderboard
+   curl -X GET http://localhost:5000/leaderboard
+
+4. Get top 3 only
+   curl -X GET "http://localhost:5000/leaderboard?limit=3"
+
+Expected Results:
+-----------------
+✓ Students ranked by total_credits_received (descending)
+✓ If tied, ranked by student_id (ascending)
+✓ Each entry shows:
+  - rank
+  - student_id and student_name
+  - total_credits_received
+  - recognitions_received (count)
+  - total_endorsements
+✓ Limit parameter works correctly
+
+Test Edge Case: Tie-Breaking by Student ID
+-------------------------------------------
+Setup: Create two students with same received credits
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{"id": "2022CS005", "name": "Eve Wilson", "email": "eve@university.edu"}'
+
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{"id": "2022CS006", "name": "Frank Miller", "email": "frank@university.edu"}'
+
+Give both 20 credits:
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001", "recipient_id": "2022CS005", "credits": 20, "message": "Good!"}'
+
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS002", "recipient_id": "2022CS006", "credits": 20, "message": "Good!"}'
+
+Check leaderboard:
+curl -X GET http://localhost:5000/leaderboard
+
+Expected: CS005 should rank higher than CS006 (alphabetically by ID)
+
+===============================================
+TEST CASE 7: CREDIT RESET (STEP-UP CHALLENGE)
+===============================================
+
+Description: Test automatic monthly credit reset with carry-forward
+
+Test Case 7.1: Reset with Carry-forward (≤50 credits)
+------------------------------------------------------
+Setup: Create a new student with some unused credits
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{"id": "2022CS007", "name": "Grace Taylor", "email": "grace@university.edu"}'
+
+Spend 70 credits (leaving 30 available):
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS007", "recipient_id": "2022CS001", "credits": 70, "message": "Great!"}'
+
+Manually trigger reset (simulates new month):
+curl -X POST http://localhost:5000/reset-credits/2022CS007
+
+Expected Results:
+✓ old_available_credits: 30
+✓ new_available_credits: 130 (100 + 30 carry-forward)
+✓ credits_sent_this_month: 0 (reset from 70)
+✓ last_reset_month updated
+
+Test Case 7.2: Reset with Max Carry-forward (>50 credits)
+----------------------------------------------------------
+Setup: Create student with >50 unused credits
+curl -X POST http://localhost:5000/students \
+  -H "Content-Type: application/json" \
+  -d '{"id": "2022CS008", "name": "Henry Brown", "email": "henry@university.edu"}'
+
+Spend only 20 credits (leaving 80 available):
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS008", "recipient_id": "2022CS001", "credits": 20, "message": "Nice!"}'
+
+Manually trigger reset:
+curl -X POST http://localhost:5000/reset-credits/2022CS008
+
+Expected Results:
+✓ old_available_credits: 80
+✓ new_available_credits: 150 (100 + 50, not 180)
+✓ Only 50 credits carried forward (max limit)
+
+Test Case 7.3: Automatic Reset on API Access
+---------------------------------------------
+Note: In production, when the month changes, any API call that accesses
+student data will automatically trigger reset. This is tested by:
+
+1. Manually changing a student's last_reset_month to previous month
+2. Making any GET /students/<id> call
+3. Verifying the reset happens automatically
+
+This test requires direct database manipulation or waiting for month change.
+
+===============================================
+TEST CASE 8: INTEGRATION TEST
+===============================================
+
+Description: Complete end-to-end workflow
+
+Scenario: New student joins, receives recognition, endorses others, redeems credits
+
+Steps:
+------
+1. Create new student
+   curl -X POST http://localhost:5000/students \
+     -H "Content-Type: application/json" \
+     -d '{"id": "2022CS009", "name": "Ivy Chen", "email": "ivy@university.edu"}'
+
+2. Ivy sends recognition to existing student
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS009", "recipient_id": "2022CS002", "credits": 25, "message": "Helpful!"}'
+
+3. Other students recognize Ivy
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS001", "recipient_id": "2022CS009", "credits": 30, "message": "Welcome!"}'
+   
+   curl -X POST http://localhost:5000/recognition \
+     -H "Content-Type: application/json" \
+     -d '{"sender_id": "2022CS003", "recipient_id": "2022CS009", "credits": 20, "message": "Great start!"}'
+
+4. Ivy endorses a recognition
+   curl -X POST http://localhost:5000/endorsement \
+     -H "Content-Type: application/json" \
+     -d '{"recognition_id": 1, "endorser_id": "2022CS009"}'
+
+5. Ivy redeems 25 credits
+   curl -X POST http://localhost:5000/redemption \
+     -H "Content-Type: application/json" \
+     -d '{"student_id": "2022CS009", "credits": 25}'
+
+6. Check Ivy's final status
+   curl -X GET http://localhost:5000/students/2022CS009
+
+7. Check leaderboard position
+   curl -X GET http://localhost:5000/leaderboard
+
+Expected Results:
+-----------------
+✓ Ivy created with 100 available credits
+✓ After sending 25 credits: available = 75, sent_this_month = 25
+✓ After receiving 50 credits: received_credits = 50
+✓ Endorsement created successfully
+✓ After redeeming 25 credits: received_credits = 25, voucher = ₹125
+✓ Final state:
+  - available_credits: 75
+  - received_credits: 25
+  - credits_sent_this_month: 25
+✓ Ivy appears in leaderboard with correct stats
+
+===============================================
+TEST CASE 9: ERROR HANDLING
+===============================================
+
+Description: Test various error scenarios
+
+Test Case 9.1: Non-existent Student
+------------------------------------
+curl -X GET http://localhost:5000/students/NONEXISTENT
+
+Expected: Error "Student not found" with status 404
+
+Test Case 9.2: Missing Required Fields
+---------------------------------------
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "2022CS001"}'
+
+Expected: Error "Missing required fields: sender_id, recipient_id, credits"
+
+Test Case 9.3: Invalid JSON
+----------------------------
+curl -X POST http://localhost:5000/recognition \
+  -H "Content-Type: application/json" \
+  -d 'invalid json'
+
+Expected: 400 Bad Request or JSON parse error
+
+===============================================
+TEST CASE 10: DATABASE OPERATIONS
+===============================================
+
+Description: Test database initialization
+
+Steps:
+------
+1. Check current state
+   curl -X GET http://localhost:5000/
+
+2. Reset database
+   curl -X POST http://localhost:5000/init-db
+
+3. Verify all data cleared
+   curl -X GET http://localhost:5000/students/2022CS001
+
+Expected Results:
+-----------------
+✓ init-db returns success message
+✓ All previous student data cleared
+✓ Database ready for fresh start
+
+===============================================
+SUMMARY
+===============================================
+
+Core Functionality Tested:
+✓ Recognition - Credit transfers with all business rules
+✓ Endorsements - Like/cheer functionality with duplicate prevention
+✓ Redemption - Credit-to-voucher conversion
+
+Step-Up Challenges Tested:
+✓ Credit Reset - Monthly reset with carry-forward logic
+✓ Leaderboard - Ranking with endorsement counts
+
+Additional Tests:
+✓ Student management (CRUD operations)
+✓ Error handling and validation
+✓ Edge cases and boundary conditions
+✓ Integration workflows
+
+===============================================
+QUICK TEST SCRIPT (PowerShell)
+===============================================
+
+Save the following as test-all.ps1 and run to test all core features:
+
+# Initialize database
+Invoke-RestMethod -Uri "http://localhost:5000/init-db" -Method Post
+
+# Create students
+Invoke-RestMethod -Uri "http://localhost:5000/students" -Method Post -ContentType "application/json" -Body '{"id":"2022CS001","name":"Alice Johnson","email":"alice@university.edu"}'
+Invoke-RestMethod -Uri "http://localhost:5000/students" -Method Post -ContentType "application/json" -Body '{"id":"2022CS002","name":"Bob Smith","email":"bob@university.edu"}'
+Invoke-RestMethod -Uri "http://localhost:5000/students" -Method Post -ContentType "application/json" -Body '{"id":"2022CS003","name":"Charlie Davis","email":"charlie@university.edu"}'
+
+# Create recognitions
+Invoke-RestMethod -Uri "http://localhost:5000/recognition" -Method Post -ContentType "application/json" -Body '{"sender_id":"2022CS001","recipient_id":"2022CS002","credits":15,"message":"Great work!"}'
+Invoke-RestMethod -Uri "http://localhost:5000/recognition" -Method Post -ContentType "application/json" -Body '{"sender_id":"2022CS003","recipient_id":"2022CS002","credits":20,"message":"Excellent!"}'
+
+# Create endorsement
+Invoke-RestMethod -Uri "http://localhost:5000/endorsement" -Method Post -ContentType "application/json" -Body '{"recognition_id":1,"endorser_id":"2022CS003"}'
+
+# Redeem credits
+Invoke-RestMethod -Uri "http://localhost:5000/redemption" -Method Post -ContentType "application/json" -Body '{"student_id":"2022CS002","credits":10}'
+
+# View leaderboard
+Invoke-RestMethod -Uri "http://localhost:5000/leaderboard" -Method Get
+
+Write-Host "All tests completed! Check the output above for results."
+
+===============================================
