@@ -1,6 +1,0 @@
-LLM Chat Export - Boostly Application Development
-
-This file will contain the complete conversation with the AI coding assistant used to build this application.
-
-[Conversation will be exported at the end of development]
-
